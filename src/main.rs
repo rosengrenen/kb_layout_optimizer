@@ -40,7 +40,7 @@ impl Keyboard {
             }
         }
 
-        unreachable!();
+        unreachable!("{}", key);
     }
 
     fn key_finger(&self, key: char) -> usize {
@@ -84,7 +84,7 @@ const QWERTY: Keyboard = Keyboard {
 };
 const DVORAK: Keyboard = Keyboard {
     keys: [
-        ['"', 'a', ';'],
+        ['?', 'a', ';'],
         [',', 'o', 'q'],
         ['.', 'e', 'j'],
         ['p', 'u', 'k'],
@@ -134,37 +134,65 @@ fn generate_population() -> Vec<Keyboard> {
 // Finger rolling, att använda fingrar brevid för nästa key, behöver kanske mer än en window size på 2 (bigram)
 // Vikt/kostnad för att flytta olika fingrar i olika riktningar
 // flera lager, men det måste kosta mer att använda tummen pga koordination och stoppar flowet
-fn evaluate_individual(individual: &Keyboard) -> f64 {
+fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
+    let mut finger_positions = [
+        (0, 1),
+        (1, 1),
+        (2, 1),
+        (3, 1),
+        (4, 1),
+        (5, 1),
+        (6, 1),
+        (7, 1),
+        (8, 1),
+        (9, 1),
+    ];
+    let mut prev_finger_index = 0;
     let mut fitness = 0.0;
-    for (bigram, freq) in BIGRAMS.iter() {
-        let freq = *freq;
-        let mut chars = bigram.chars();
-        let first_c = chars.next().unwrap();
-        let second_c = chars.next().unwrap();
-        let (first_x, first_y) = individual.key_pos(first_c);
-        let (second_x, second_y) = individual.key_pos(second_c);
-        let first_finger = individual.key_finger(first_c);
-        let second_finger = individual.key_finger(second_c);
-        if first_finger == second_finger {
-            let first_x = first_x as f64;
-            let first_y = first_y as f64;
-            let second_x = second_x as f64;
-            let second_y = second_y as f64;
-            fitness += ((first_x - second_x).powi(2) + (first_y - second_y).powi(2)) * freq as f64;
-        } else {
-            let mut factor = 0;
-            factor += match first_y {
-                0 => 1,
-                2 => 5,
-                _ => 0,
-            };
-            factor += match second_y {
-                0 => 1,
-                2 => 5,
-                _ => 0,
-            };
-            fitness += factor as f64 * freq as f64;
+    let same_finger_multiplier = 1.0;
+    let top_multipler = 1.0;
+    let bottom_multipler = 1.0;
+    let calc_distance = |prev_x: isize, prev_y: isize, x: isize, y: isize| {
+        let y_delta = (prev_y - y).abs();
+        let y_distance: f64 = match y_delta {
+            2 => top_multipler + bottom_multipler,
+            1 => match prev_y {
+                0 => top_multipler,
+                1 => match y {
+                    0 => top_multipler,
+                    2 => bottom_multipler,
+                    _ => unreachable!(),
+                },
+                2 => bottom_multipler,
+                _ => unreachable!(),
+            },
+            0 => 0.0,
+            _ => unreachable!(),
+        };
+        let x_distance = (prev_x - x).abs() as f64;
+        (x_distance.powi(2) + y_distance.powi(2)).sqrt()
+    };
+
+    for key in input.chars().map(|key| key.to_ascii_lowercase()) {
+        if !CHARS.contains(&key) {
+            continue;
         }
+
+        let finger_index = individual.key_finger(key);
+        let (x, y) = individual.key_pos(key);
+        let x = x as isize;
+        let y = y as isize;
+        let finger_position = finger_positions[finger_index];
+        let distance = calc_distance(finger_position.0, finger_position.1, x, y);
+        if finger_index == prev_finger_index {
+            fitness += distance * same_finger_multiplier;
+        } else {
+            fitness += distance;
+        }
+
+        finger_positions[finger_index] = (x, y);
+
+        prev_finger_index = finger_index;
     }
 
     fitness
@@ -302,12 +330,27 @@ fn mutate(individual: &mut Keyboard) {
 }
 
 fn main() {
+    // let input = "the quick brown fox jumps over the lazy dog";
+    let input = include_str!("../data/eng-uk_web_2202_300K/eng-uk_web_2002_300K-sentences.txt")
+        .lines()
+        .step_by(50)
+        .map(|line| {
+            let (_, content) = line.split_once("\t").unwrap();
+            content
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    println!("{}", input.len());
+
+    println!("qwerty: {}", evaluate_individual(&QWERTY, &input));
+    println!("dvorak: {}", evaluate_individual(&DVORAK, &input));
+
     let mut population = generate_population();
 
     for g in 0..GENERATIONS {
         let fitnesses = population
             .iter()
-            .map(|individual| evaluate_individual(individual))
+            .map(|individual| evaluate_individual(individual, &input))
             .collect::<Vec<_>>();
         let mut fitnesses_with_index = fitnesses.iter().enumerate().collect::<Vec<_>>();
         fitnesses_with_index.sort_by(|(_, left), (_, right)| {
@@ -341,7 +384,7 @@ fn main() {
     let mut ranked_population = population
         .into_iter()
         .map(|individual| {
-            let fitness = evaluate_individual(&individual);
+            let fitness = evaluate_individual(&individual, &input);
             (individual, fitness)
         })
         .collect::<Vec<_>>();
@@ -349,6 +392,4 @@ fn main() {
         left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
     });
     ranked_population[0].0.print();
-    println!("{}", evaluate_individual(&QWERTY));
-    println!("{}", evaluate_individual(&DVORAK));
 }
