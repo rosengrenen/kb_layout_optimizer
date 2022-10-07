@@ -1,3 +1,5 @@
+mod keyboard;
+
 use lazy_static::lazy_static;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use rayon::{
@@ -55,7 +57,6 @@ const CHARS: [char; 30] = [
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
     't', 'u', 'v', 'w', 'x', 'y', 'z', ',', '.', '?', ';',
 ];
-const MOST_COMMON: [char; 8] = ['e', 't', 'a', 'o', 'i', 'n', 's', 'r'];
 lazy_static! {
     static ref BIGRAMS: Vec<(String, i32)> = include_str!("../data/english_bigrams_1.txt")
         .lines()
@@ -97,49 +98,42 @@ const DVORAK: Keyboard = Keyboard {
 };
 
 // Settings
-const POPULATION_SIZE: usize = 1000;
-const GENERATIONS: usize = 10000;
+const POPULATION_SIZE: usize = 300;
+const GENERATIONS: usize = 2000;
 const TOURNAMENT_PROBABILTY: f64 = 0.8;
 const TOURNAMENT_SIZE: usize = 5;
 const MUTATION_PROBABILITY: f64 = 0.1;
+const CROSSOVER_PROBABILITY: f64 = 0.8;
 
 fn generate_individual() -> Keyboard {
     let mut chars = CHARS.to_vec();
     chars.shuffle(&mut thread_rng());
-    let mut most_common = MOST_COMMON.to_vec();
-    most_common.shuffle(&mut thread_rng());
     let mut keyboard = Keyboard::default();
 
     for i in 0..10 {
-        if i == 4 || i == 5 {
-            continue;
-        }
-
-        let a = most_common.pop().unwrap();
-        keyboard.keys[i][1] = a;
-        chars.retain(|&b| b != a);
-    }
-
-    for i in 0..10 {
         keyboard.keys[i][0] = chars.pop().unwrap();
+        keyboard.keys[i][1] = chars.pop().unwrap();
         keyboard.keys[i][2] = chars.pop().unwrap();
     }
-
-    keyboard.keys[4][1] = chars.pop().unwrap();
-    keyboard.keys[5][1] = chars.pop().unwrap();
 
     keyboard
 }
 
 fn generate_population() -> Vec<Keyboard> {
     let mut keyboards = Vec::with_capacity(POPULATION_SIZE);
-    for i in 0..POPULATION_SIZE {
+    for _ in 0..POPULATION_SIZE {
         keyboards.push(generate_individual());
     }
 
     keyboards
 }
 
+// Lika använding av händer och fingrar för jämt slitage, eller proportioneligt på något vis iallafall.
+// Ta hänsyn till musanvänding, typ dominant hand
+// Fundera på rimlig input att beräkna kostnaden på, typ vilken text/kod. Sampla github?
+// Finger rolling, att använda fingrar brevid för nästa key, behöver kanske mer än en window size på 2 (bigram)
+// Vikt/kostnad för att flytta olika fingrar i olika riktningar
+// flera lager, men det måste kosta mer att använda tummen pga koordination och stoppar flowet
 fn evaluate_individual(individual: &Keyboard) -> f64 {
     let mut fitness = 0.0;
     for (bigram, freq) in BIGRAMS.iter() {
@@ -197,6 +191,10 @@ fn tournament_selection(fitnesses: &[f64]) -> usize {
 }
 
 fn cross(first_individual: &Keyboard, second_individual: &Keyboard) -> (Keyboard, Keyboard) {
+    if rand::random::<f64>() > CROSSOVER_PROBABILITY {
+        return (first_individual.clone(), second_individual.clone());
+    }
+
     let crossover_point = rand::random::<usize>() % 30;
     let mut first_new_individual = Keyboard::default();
     let mut second_new_individual = Keyboard::default();
@@ -209,94 +207,64 @@ fn cross(first_individual: &Keyboard, second_individual: &Keyboard) -> (Keyboard
     }
 
     // Fill in missing in first
-    let mut first_missing_most_common = MOST_COMMON.to_vec();
     let mut first_missing_chars = CHARS.to_vec();
-    first_missing_chars.retain(|key| !MOST_COMMON.contains(key));
     for i in 0..crossover_point {
         let current_key = first_new_individual.keys[i / 3][i % 3];
-        first_missing_most_common.retain(|&key| key != current_key);
         first_missing_chars.retain(|&key| key != current_key);
     }
 
     for i in crossover_point..30 {
         let x = i / 3;
         let y = i % 3;
-        if y == 1 && (x > 5 || x < 4) {
-            if first_missing_most_common.contains(&second_individual.keys[x][y]) {
-                first_new_individual.keys[x][y] = second_individual.keys[x][y];
-                first_missing_most_common.retain(|&key| key != second_individual.keys[x][y]);
-            }
-        } else {
-            if first_missing_chars.contains(&second_individual.keys[x][y]) {
-                first_new_individual.keys[x][y] = second_individual.keys[x][y];
-                first_missing_chars.retain(|&key| key != second_individual.keys[x][y]);
-            }
+        if first_missing_chars.contains(&second_individual.keys[x][y]) {
+            first_new_individual.keys[x][y] = second_individual.keys[x][y];
+            first_missing_chars.retain(|&key| key != second_individual.keys[x][y]);
         }
     }
 
-    first_missing_most_common.shuffle(&mut thread_rng());
     first_missing_chars.shuffle(&mut thread_rng());
 
     for i in crossover_point..30 {
         let x = i / 3;
         let y = i % 3;
-        if y == 1 && (x > 5 || x < 4) {
-            if first_new_individual.keys[x][y] == '-' {
-                first_new_individual.keys[x][y] = first_missing_most_common.pop().unwrap();
-            }
-        } else {
-            if first_new_individual.keys[x][y] == '-' {
-                first_new_individual.keys[x][y] = first_missing_chars.pop().unwrap();
-            }
+        if first_new_individual.keys[x][y] == '-' {
+            first_new_individual.keys[x][y] = first_missing_chars.pop().unwrap();
         }
     }
 
     // Fill in missing in second
-    let mut second_missing_most_common = MOST_COMMON.to_vec();
     let mut second_missing_chars = CHARS.to_vec();
-    second_missing_chars.retain(|key| !MOST_COMMON.contains(key));
     for i in crossover_point..30 {
         let current_key = second_new_individual.keys[i / 3][i % 3];
-        second_missing_most_common.retain(|&key| key != current_key);
         second_missing_chars.retain(|&key| key != current_key);
     }
 
     for i in 0..crossover_point {
         let x = i / 3;
         let y = i % 3;
-        if y == 1 && (x > 5 || x < 4) {
-            if second_missing_most_common.contains(&first_individual.keys[x][y]) {
-                second_new_individual.keys[x][y] = first_individual.keys[x][y];
-                second_missing_most_common.retain(|&key| key != first_individual.keys[x][y]);
-            }
-        } else {
-            if second_missing_chars.contains(&first_individual.keys[x][y]) {
-                second_new_individual.keys[x][y] = first_individual.keys[x][y];
-                second_missing_chars.retain(|&key| key != first_individual.keys[x][y]);
-            }
+        if second_missing_chars.contains(&first_individual.keys[x][y]) {
+            second_new_individual.keys[x][y] = first_individual.keys[x][y];
+            second_missing_chars.retain(|&key| key != first_individual.keys[x][y]);
         }
     }
 
-    second_missing_most_common.shuffle(&mut thread_rng());
     second_missing_chars.shuffle(&mut thread_rng());
 
     for i in 0..crossover_point {
         let x = i / 3;
         let y = i % 3;
-        if y == 1 && (x > 5 || x < 4) {
-            if second_new_individual.keys[x][y] == '-' {
-                second_new_individual.keys[x][y] = second_missing_most_common.pop().unwrap();
-            }
-        } else {
-            if second_new_individual.keys[x][y] == '-' {
-                second_new_individual.keys[x][y] = second_missing_chars.pop().unwrap();
-            }
+        if second_new_individual.keys[x][y] == '-' {
+            second_new_individual.keys[x][y] = second_missing_chars.pop().unwrap();
         }
     }
 
     (first_new_individual, second_new_individual)
 }
 
+// rosens tagning: gå igenom alla keys och kolla om det ska mutera, lägg till deras keys i en pool, sätt alla nya keys som inte
+// muterar till det de var innan, och slumpa ut från poolen till de som ska mutera
+// dinos tagning: slumpa ordningen av index, gå igenom den i ordning, om en key finns i poolen (av alla keys) och inte ska mutera,
+// tar den den, annars tar den en slumpad
 fn mutate(individual: &mut Keyboard) {
     let mut rng = rand::thread_rng();
     for x in 0..10 {
