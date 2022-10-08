@@ -1,9 +1,9 @@
-mod keyboard;
-
 use lazy_static::lazy_static;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use rayon::{
-    prelude::{IntoParallelRefMutIterator, ParallelIterator},
+    prelude::{
+        IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+    },
     slice::ParallelSlice,
 };
 
@@ -82,6 +82,20 @@ const QWERTY: Keyboard = Keyboard {
         ['p', ';', '?'],
     ],
 };
+const COLEMAK: Keyboard = Keyboard {
+    keys: [
+        ['q', 'a', 'z'],
+        ['w', 'r', 'x'],
+        ['f', 's', 'c'],
+        ['p', 't', 'v'],
+        ['g', 'd', 'b'],
+        ['j', 'h', 'k'],
+        ['l', 'n', 'm'],
+        ['u', 'e', ','],
+        ['y', 'i', '.'],
+        [';', 'o', '?'],
+    ],
+};
 const DVORAK: Keyboard = Keyboard {
     keys: [
         ['?', 'a', ';'],
@@ -98,11 +112,11 @@ const DVORAK: Keyboard = Keyboard {
 };
 
 // Settings
-const POPULATION_SIZE: usize = 300;
-const GENERATIONS: usize = 2000;
+const POPULATION_SIZE: usize = 200;
+const GENERATIONS: usize = 1000;
 const TOURNAMENT_PROBABILTY: f64 = 0.8;
-const TOURNAMENT_SIZE: usize = 5;
-const MUTATION_PROBABILITY: f64 = 0.1;
+const TOURNAMENT_SIZE: usize = 2;
+const MUTATION_PROBABILITY: f64 = 0.05;
 const CROSSOVER_PROBABILITY: f64 = 0.8;
 
 fn generate_individual() -> Keyboard {
@@ -134,24 +148,22 @@ fn generate_population() -> Vec<Keyboard> {
 // Finger rolling, att använda fingrar brevid för nästa key, behöver kanske mer än en window size på 2 (bigram)
 // Vikt/kostnad för att flytta olika fingrar i olika riktningar
 // flera lager, men det måste kosta mer att använda tummen pga koordination och stoppar flowet
+
+// params (with weights):
+//  * alternating hands
+//  * disfavour bottom row
+//  * rolls, outer to inner finger mostly, more awkward inner to outer direction
+//  * finger strength, i.e. pinky is weaker
+//  * hand/finger usage symmetry symmetry
+//  * idle time of fingers
+//  * physical restrictions of fingers in a hand
+//			e.g. one first on top row and the adjacent finger on bottom row on consecutive keys is bad
 fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
-    let mut finger_positions = [
-        (0, 1),
-        (1, 1),
-        (2, 1),
-        (3, 1),
-        (4, 1),
-        (5, 1),
-        (6, 1),
-        (7, 1),
-        (8, 1),
-        (9, 1),
-    ];
     let mut prev_finger_index = 0;
     let mut fitness = 0.0;
-    let same_finger_multiplier = 1.0;
+    let same_finger_multiplier = 5.0;
     let top_multipler = 1.0;
-    let bottom_multipler = 1.0;
+    let bottom_multipler = 2.0;
     let calc_distance = |prev_x: isize, prev_y: isize, x: isize, y: isize| {
         let y_delta = (prev_y - y).abs();
         let y_distance: f64 = match y_delta {
@@ -173,24 +185,22 @@ fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
         (x_distance.powi(2) + y_distance.powi(2)).sqrt()
     };
 
-    for key in input.chars().map(|key| key.to_ascii_lowercase()) {
-        if !CHARS.contains(&key) {
-            continue;
-        }
-
+    for key in input.chars() {
         let finger_index = individual.key_finger(key);
         let (x, y) = individual.key_pos(key);
         let x = x as isize;
         let y = y as isize;
-        let finger_position = finger_positions[finger_index];
-        let distance = calc_distance(finger_position.0, finger_position.1, x, y);
+
+        let start_y = 1;
+        let start_x = finger_index as isize;
+
         if finger_index == prev_finger_index {
+            let distance = calc_distance(start_x, start_y, x, y);
             fitness += distance * same_finger_multiplier;
         } else {
+            let distance = calc_distance(start_x, start_y, x, y);
             fitness += distance;
         }
-
-        finger_positions[finger_index] = (x, y);
 
         prev_finger_index = finger_index;
     }
@@ -295,61 +305,50 @@ fn cross(first_individual: &Keyboard, second_individual: &Keyboard) -> (Keyboard
 // tar den den, annars tar den en slumpad
 fn mutate(individual: &mut Keyboard) {
     let mut rng = rand::thread_rng();
+    let mut keys = Vec::new();
+    let mut key_positions = Vec::new();
     for x in 0..10 {
         for y in 0..3 {
             if rng.gen::<f64>() < MUTATION_PROBABILITY {
-                if y == 1 && (x > 5 || x < 4) {
-                    let mut other_x = rng.gen::<usize>() % 8;
-                    if other_x > 3 {
-                        other_x += 2;
-                    }
+                keys.push(individual.keys[x][y]);
+                key_positions.push((x, y));
+            }
+        }
+    }
 
-                    let tmp = individual.keys[x][1];
-                    individual.keys[x][1] = individual.keys[other_x][1];
-                    individual.keys[other_x][1] = tmp;
-                } else {
-                    let (other_x, other_y) = loop {
-                        let other_y = rng.gen::<usize>() % 3;
-                        let other_x = rng.gen::<usize>() % 10;
-                        if other_y != 1 {
-                            break (other_x, other_y);
-                        }
-
-                        if other_x == 4 || other_x == 5 {
-                            break (other_x, other_y);
-                        }
-                    };
-
-                    let tmp = individual.keys[x][y];
-                    individual.keys[x][y] = individual.keys[other_x][other_y];
-                    individual.keys[other_x][other_y] = tmp;
-                }
+    keys.shuffle(&mut rng);
+    for x in 0..10 {
+        for y in 0..3 {
+            if key_positions.contains(&(x, y)) {
+                individual.keys[x][y] = keys.pop().unwrap();
             }
         }
     }
 }
 
 fn main() {
-    // let input = "the quick brown fox jumps over the lazy dog";
     let input = include_str!("../data/eng-uk_web_2202_300K/eng-uk_web_2002_300K-sentences.txt")
         .lines()
         .step_by(50)
         .map(|line| {
             let (_, content) = line.split_once("\t").unwrap();
             content
+                .chars()
+                .filter(|c| CHARS.contains(c))
+                .collect::<String>()
         })
         .collect::<Vec<_>>()
         .join("");
-    println!("{}", input.len());
 
     println!("qwerty: {}", evaluate_individual(&QWERTY, &input));
+    println!("colemak: {}", evaluate_individual(&COLEMAK, &input));
     println!("dvorak: {}", evaluate_individual(&DVORAK, &input));
 
     let mut population = generate_population();
 
     for g in 0..GENERATIONS {
         let fitnesses = population
-            .iter()
+            .par_iter()
             .map(|individual| evaluate_individual(individual, &input))
             .collect::<Vec<_>>();
         let mut fitnesses_with_index = fitnesses.iter().enumerate().collect::<Vec<_>>();
@@ -357,6 +356,12 @@ fn main() {
             left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        println!(
+            "[{}] best: {:.1}, avg: {:.1}",
+            g,
+            fitnesses_with_index[0].1,
+            fitnesses.iter().sum::<f64>() / POPULATION_SIZE as f64
+        );
         let parent_indices = (0..POPULATION_SIZE)
             .map(|_| tournament_selection(&fitnesses))
             .collect::<Vec<_>>();
@@ -376,13 +381,11 @@ fn main() {
 
         new_population[0] = population[fitnesses_with_index[0].0].clone();
 
-        println!("best fitness ({}): {}", g, fitnesses_with_index[0].1);
-
         population = new_population;
     }
 
     let mut ranked_population = population
-        .into_iter()
+        .into_par_iter()
         .map(|individual| {
             let fitness = evaluate_individual(&individual, &input);
             (individual, fitness)
