@@ -452,9 +452,13 @@ fn mutate(individual: &mut Keyboard) {
 }
 
 fn main() {
-    let raw_input = include_str!("../data/eng-uk_web_2202_300K/eng-uk_web_2002_300K-sentences.txt");
+    let mut raw_input =
+        include_str!("../data/eng-uk_web_2202_300K/eng-uk_web_2002_300K-sentences.txt")
+            .lines()
+            .collect::<Vec<_>>();
+    raw_input.shuffle(&mut rand::thread_rng());
     let input = raw_input
-        .lines()
+        .iter()
         .step_by(50)
         .map(|line| {
             let (_, content) = line.split_once("\t").unwrap();
@@ -469,20 +473,22 @@ fn main() {
     let mut letter_freq: HashMap<char, f64> = HashMap::new();
     let mut bigrams: HashMap<String, f64> = HashMap::new();
     let mut prev_c = None;
-    for c in raw_input.chars() {
-        let c = c.to_ascii_lowercase();
-        if !CHARS.contains(&c) {
-            continue;
+    for line in raw_input.iter() {
+        for c in line.chars() {
+            let c = c.to_ascii_lowercase();
+            if !CHARS.contains(&c) {
+                continue;
+            }
+
+            *letter_freq.entry(c).or_default() += 1.0;
+
+            if let Some(prev_c) = prev_c {
+                let bigram = format!("{}{}", prev_c, c);
+                *bigrams.entry(bigram).or_default() += 1.0;
+            }
+
+            prev_c = Some(c);
         }
-
-        *letter_freq.entry(c).or_default() += 1.0;
-
-        if let Some(prev_c) = prev_c {
-            let bigram = format!("{}{}", prev_c, c);
-            *bigrams.entry(bigram).or_default() += 1.0;
-        }
-
-        prev_c = Some(c);
     }
 
     let len: f64 = letter_freq.values().sum();
