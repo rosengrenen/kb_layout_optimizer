@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use lazy_static::lazy_static;
 use rand::{seq::SliceRandom, thread_rng, Rng};
@@ -34,9 +34,17 @@ impl Keyboard {
     }
 
     fn print_freq(&self, letter_freq: &HashMap<char, f64>) {
+        let mut left_hand_usage = 0.0;
+        for x in 0..5 {
+            for y in 0..3 {
+                left_hand_usage += letter_freq.get(&self.keys[x][y]).unwrap();
+            }
+        }
+
+        println!("Hand usage: {} {}", left_hand_usage, 1.0 - left_hand_usage);
         for y in 0..3 {
             for x in 0..10 {
-                print!("{:.02} ", letter_freq.get(&self.keys[x][y]).unwrap());
+                print!("{:.04} ", letter_freq.get(&self.keys[x][y]).unwrap());
             }
 
             println!();
@@ -123,6 +131,37 @@ const DVORAK: Keyboard = Keyboard {
         ['l', 's', 'z'],
     ],
 };
+const MIRYOKU: Keyboard = Keyboard {
+    keys: [
+        ['q', 'a', 'z'],
+        ['w', 'r', 'x'],
+        ['f', 's', 'c'],
+        ['p', 't', 'd'],
+        ['b', 'g', 'v'],
+        ['j', 'm', 'k'],
+        ['l', 'n', 'h'],
+        ['u', 'e', ','],
+        ['y', 'i', '.'],
+        [';', 'o', '?'],
+    ],
+};
+const CANDIDATE_1: Keyboard = Keyboard {
+    keys: [
+        ['p', 'o', 'z'],
+        ['h', 'a', 'k'],
+        ['f', 'e', ','],
+        ['y', 'i', ';'],
+        ['b', 'u', '.'],
+        ['g', 'm', '?'],
+        ['w', 's', 'q'],
+        ['d', 't', 'x'],
+        ['l', 'n', 'v'],
+        ['c', 'r', 'j'],
+    ],
+};
+// p h f y b g w d l c
+// o a e i u m s t n r
+// z k , ; . ? q x v j
 
 // Settings
 const POPULATION_SIZE: usize = 200;
@@ -189,11 +228,7 @@ const FINGER_TARGET_USAGE: [f64; 10] = [0.1, 0.135, 0.135, 0.13, 0.0, 0.0, 0.13,
 //  * idle time of fingers
 //  * physical restrictions of fingers in a hand
 //			e.g. one first on top row and the adjacent finger on bottom row on consecutive keys is bad
-fn evaluate_individual(
-    individual: &Keyboard,
-    input: &str,
-    letter_freq: &HashMap<char, f64>,
-) -> f64 {
+fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
     let mut prev_finger_index = 0;
     let mut fitness = 0.0;
     let calc_distance = |prev_x: isize, prev_y: isize, x: isize, y: isize| {
@@ -276,25 +311,6 @@ fn evaluate_individual(
                     - 1.0
             })
             .sum::<f64>();
-
-    let mut most_common = letter_freq.into_iter().collect::<Vec<_>>();
-    most_common.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let mut most_common = most_common
-        .into_iter()
-        .map(|(key, _)| *key)
-        .take(8)
-        .collect::<HashSet<_>>();
-    for x in 0..10 {
-        if x == 4 || x == 5 {
-            continue;
-        }
-
-        most_common.remove(&individual.keys[x][1]);
-    }
-
-    if !most_common.is_empty() {
-        fitness *= 1.0 + most_common.len() as f64;
-    }
 
     fitness
 }
@@ -501,25 +517,23 @@ fn main() {
         *b /= len;
     }
 
-    println!(
-        "qwerty: {}",
-        evaluate_individual(&QWERTY, &input, &letter_freq)
-    );
-    println!(
-        "colemak: {}",
-        evaluate_individual(&COLEMAK, &input, &letter_freq)
-    );
-    println!(
-        "dvorak: {}",
-        evaluate_individual(&DVORAK, &input, &letter_freq)
-    );
+    println!("qwerty: {}", evaluate_individual(&QWERTY, &input));
+    QWERTY.print_freq(&letter_freq);
+    println!("colemak: {}", evaluate_individual(&COLEMAK, &input));
+    COLEMAK.print_freq(&letter_freq);
+    println!("dvorak: {}", evaluate_individual(&DVORAK, &input));
+    DVORAK.print_freq(&letter_freq);
+    println!("miryoku: {}", evaluate_individual(&MIRYOKU, &input));
+    MIRYOKU.print_freq(&letter_freq);
+    println!("candidate 1: {}", evaluate_individual(&CANDIDATE_1, &input));
+    CANDIDATE_1.print_freq(&letter_freq);
 
     let mut population = generate_population();
 
     for g in 0..GENERATIONS {
         let fitnesses = population
             .par_iter()
-            .map(|individual| evaluate_individual(individual, &input, &letter_freq))
+            .map(|individual| evaluate_individual(individual, &input))
             .collect::<Vec<_>>();
         let mut fitnesses_with_index = fitnesses.iter().enumerate().collect::<Vec<_>>();
         fitnesses_with_index.sort_by(|(_, left), (_, right)| {
@@ -557,7 +571,7 @@ fn main() {
     let mut ranked_population = population
         .into_par_iter()
         .map(|individual| {
-            let fitness = evaluate_individual(&individual, &input, &letter_freq);
+            let fitness = evaluate_individual(&individual, &input);
             (individual, fitness)
         })
         .collect::<Vec<_>>();
