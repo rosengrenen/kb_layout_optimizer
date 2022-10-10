@@ -228,7 +228,11 @@ const FINGER_TARGET_USAGE: [f64; 10] = [0.1, 0.135, 0.135, 0.13, 0.0, 0.0, 0.13,
 //  * idle time of fingers
 //  * physical restrictions of fingers in a hand
 //			e.g. one first on top row and the adjacent finger on bottom row on consecutive keys is bad
-fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
+fn evaluate_individual(
+    individual: &Keyboard,
+    input: &str,
+    letter_freq: &HashMap<char, f64>,
+) -> f64 {
     let mut prev_finger_index = 0;
     let mut fitness = 0.0;
     let calc_distance = |prev_x: isize, prev_y: isize, x: isize, y: isize| {
@@ -311,6 +315,15 @@ fn evaluate_individual(individual: &Keyboard, input: &str) -> f64 {
                     - 1.0
             })
             .sum::<f64>();
+
+    let mut left_hand_usage = 0.0;
+    for x in 0..5 {
+        for y in 0..3 {
+            left_hand_usage += letter_freq.get(&individual.keys[x][y]).unwrap();
+        }
+    }
+
+    fitness *= 1.0 + (0.5 - left_hand_usage).abs().powi(3);
 
     fitness
 }
@@ -517,15 +530,30 @@ fn main() {
         *b /= len;
     }
 
-    println!("qwerty: {}", evaluate_individual(&QWERTY, &input));
+    println!(
+        "qwerty: {}",
+        evaluate_individual(&QWERTY, &input, &letter_freq)
+    );
     QWERTY.print_freq(&letter_freq);
-    println!("colemak: {}", evaluate_individual(&COLEMAK, &input));
+    println!(
+        "colemak: {}",
+        evaluate_individual(&COLEMAK, &input, &letter_freq)
+    );
     COLEMAK.print_freq(&letter_freq);
-    println!("dvorak: {}", evaluate_individual(&DVORAK, &input));
+    println!(
+        "dvorak: {}",
+        evaluate_individual(&DVORAK, &input, &letter_freq)
+    );
     DVORAK.print_freq(&letter_freq);
-    println!("miryoku: {}", evaluate_individual(&MIRYOKU, &input));
+    println!(
+        "miryoku: {}",
+        evaluate_individual(&MIRYOKU, &input, &letter_freq)
+    );
     MIRYOKU.print_freq(&letter_freq);
-    println!("candidate 1: {}", evaluate_individual(&CANDIDATE_1, &input));
+    println!(
+        "candidate 1: {}",
+        evaluate_individual(&CANDIDATE_1, &input, &letter_freq)
+    );
     CANDIDATE_1.print_freq(&letter_freq);
 
     let mut population = generate_population();
@@ -533,7 +561,7 @@ fn main() {
     for g in 0..GENERATIONS {
         let fitnesses = population
             .par_iter()
-            .map(|individual| evaluate_individual(individual, &input))
+            .map(|individual| evaluate_individual(individual, &input, &letter_freq))
             .collect::<Vec<_>>();
         let mut fitnesses_with_index = fitnesses.iter().enumerate().collect::<Vec<_>>();
         fitnesses_with_index.sort_by(|(_, left), (_, right)| {
@@ -571,7 +599,7 @@ fn main() {
     let mut ranked_population = population
         .into_par_iter()
         .map(|individual| {
-            let fitness = evaluate_individual(&individual, &input);
+            let fitness = evaluate_individual(&individual, &input, &letter_freq);
             (individual, fitness)
         })
         .collect::<Vec<_>>();
