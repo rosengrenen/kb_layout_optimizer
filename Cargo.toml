@@ -1,11 +1,8 @@
-[package]
-name = "kb-layout-ga"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-lazy_static = "1.4.0"
-rand = "0.8.5"
-rayon = "1.5.3"
+[workspace]
+members = [
+	"ga_sim",
+	"kb_layout_evaluator",
+	"kb_layout_optimizer",
+	"kb_layout_optimizer_cli",
+	"kb_layout_optimizer_web"
+]
