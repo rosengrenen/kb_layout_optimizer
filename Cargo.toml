@@ -1,6 +1,7 @@
 [workspace]
 members = [
-	"ga_sim",
+	"ga_optimizer",
+	"kb_layout",
 	"kb_layout_evaluator",
 	"kb_layout_optimizer",
 	"kb_layout_optimizer_cli",
