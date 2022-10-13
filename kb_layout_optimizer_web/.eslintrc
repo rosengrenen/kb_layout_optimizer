@@ -1,0 +1,40 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint", "simple-import-sort", "prettier"],
+  "extends": [
+    "plugin:@next/next/recommended",
+    "plugin:prettier/recommended",
+    "plugin:import/recommended",
+    "plugin:import/typescript"
+  ],
+  "parserOptions": {
+    "project": "tsconfig.json"
+  },
+  "rules": {
+    "simple-import-sort/imports": [
+      "error",
+      {
+        "groups": [
+          // Side effect imports
+          ["^\\u0000"],
+          // React imports
+          ["^react$", "^react-dom$"],
+          // Imports starting with a letter, digit, underscore, or an @ followed by a letter
+          ["^@?\\w"],
+          // Imports not starting with a dot
+          ["^"],
+          // Relative parent imports
+          ["^\\.\\."],
+          // Relative sibling imports
+          ["^\\."]
+        ]
+      }
+    ],
+    "simple-import-sort/exports": "error",
+    "import/first": "error",
+    "import/newline-after-import": "error",
+    "import/no-duplicates": "error",
+    "import/prefer-default-export": "off",
+    "import/no-unresolved": "off"
+  }
+}
