@@ -7,6 +7,8 @@ pub struct Button {
     pub finger: Finger,
     pub position: Position,
     pub matrix_position: MatrixPosition,
+    pub home_offset: Position,
+    pub cost: f64,
 }
 
 pub enum Hand {
